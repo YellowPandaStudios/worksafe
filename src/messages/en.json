@@ -1,0 +1,73 @@
+{
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "create": "Create",
+    "back": "Back",
+    "loading": "Loading...",
+    "search": "Search",
+    "filter": "Filter",
+    "all": "All",
+    "none": "None",
+    "yes": "Yes",
+    "no": "No",
+    "close": "Close",
+    "open": "Open",
+    "submit": "Submit",
+    "required": "Required",
+    "optional": "Optional"
+  },
+  "nav": {
+    "home": "Home",
+    "services": "Services",
+    "products": "Products",
+    "blog": "Blog",
+    "about": "About Us",
+    "contact": "Contact"
+  },
+  "footer": {
+    "copyright": "© {year} Work Safe i Sverige AB. All rights reserved.",
+    "privacy": "Privacy Policy",
+    "terms": "Terms of Service"
+  },
+  "contact": {
+    "title": "Contact Us",
+    "name": "Name",
+    "email": "Email",
+    "phone": "Phone",
+    "message": "Message",
+    "send": "Send Message",
+    "success": "Thank you for your message! We will get back to you as soon as possible.",
+    "error": "Something went wrong. Please try again."
+  },
+  "services": {
+    "title": "Our Services",
+    "readMore": "Read More",
+    "bookNow": "Book Now",
+    "price": "Price",
+    "duration": "Duration",
+    "participants": "Participants"
+  },
+  "products": {
+    "title": "Products",
+    "addToCart": "Add to Cart",
+    "outOfStock": "Out of Stock",
+    "inStock": "In Stock",
+    "price": "Price",
+    "quantity": "Quantity"
+  },
+  "blog": {
+    "title": "Blog",
+    "readMore": "Read More",
+    "publishedAt": "Published",
+    "author": "By",
+    "relatedPosts": "Related Posts"
+  },
+  "errors": {
+    "notFound": "Page not found",
+    "serverError": "An error occurred",
+    "goHome": "Go to homepage"
+  }
+}
