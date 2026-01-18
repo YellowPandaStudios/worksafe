@@ -1,0 +1,246 @@
+---
+description: Prisma ORM and database conventions
+globs: prisma/**/*,src/lib/prisma.ts,**/*.prisma
+alwaysApply: false
+---
+
+# Prisma & Database Rules
+
+## Schema Conventions
+
+### Model Naming
+- Use PascalCase for model names: `Service`, `Product`, `FormSubmission`
+- Use snake_case for database table names (auto-generated)
+- Keep model names singular: `User` not `Users`
+
+### Field Naming
+- Use camelCase for field names: `createdAt`, `isPublished`, `hubspotId`
+- Boolean fields: prefix with `is`, `has`, `can`: `isActive`, `hasVariants`
+- Timestamps: `createdAt`, `updatedAt`, `publishedAt`, `deletedAt`
+- Foreign keys: `userId`, `serviceId` (modelName + Id)
+
+### Common Field Patterns
+```prisma
+model Example {
+  id          String   @id @default(cuid())
+  
+  // Content fields
+  title       String
+  slug        String   @unique
+  content     String?  @db.Text
+  
+  // JSON fields for flexible data
+  blocks      Json     @default("[]")
+  metadata    Json     @default("{}")
+  
+  // Status
+  status      ContentStatus @default(draft)
+  
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  publishedAt DateTime?
+  
+  // Indexes
+  @@index([status])
+  @@index([createdAt])
+}
+```
+
+### Relations
+```prisma
+// One-to-many
+model Post {
+  author   User?   @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  authorId String?
+}
+
+// Many-to-many (explicit join table)
+model ServiceTestimonial {
+  service       Service     @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  serviceId     String
+  testimonial   Testimonial @relation(fields: [testimonialId], references: [id], onDelete: Cascade)
+  testimonialId String
+  sortOrder     Int         @default(0)
+  
+  @@id([serviceId, testimonialId])
+}
+```
+
+### Indexes
+- Always index foreign keys
+- Index fields used in WHERE clauses
+- Index fields used for sorting
+- Consider composite indexes for common query patterns
+
+## Query Patterns
+
+### Prisma Client
+```typescript
+// lib/prisma.ts
+import { PrismaClient } from '@prisma/client';
+
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClient | undefined;
+};
+
+export const prisma = globalForPrisma.prisma ?? new PrismaClient();
+
+if (process.env.NODE_ENV !== 'production') {
+  globalForPrisma.prisma = prisma;
+}
+```
+
+### Server-Only Queries
+```typescript
+// queries/services.ts
+import { prisma } from '@/lib/prisma';
+import { ContentStatus } from '@prisma/client';
+
+export async function getPublishedServices() {
+  return prisma.service.findMany({
+    where: { status: ContentStatus.published },
+    orderBy: { sortOrder: 'asc' },
+  });
+}
+
+export async function getServiceBySlug(slug: string) {
+  return prisma.service.findUnique({
+    where: { slug },
+    include: {
+      testimonials: {
+        include: { testimonial: true },
+        orderBy: { sortOrder: 'asc' },
+      },
+    },
+  });
+}
+```
+
+### Select Only What You Need
+```typescript
+// ✅ Good - select specific fields
+const services = await prisma.service.findMany({
+  select: {
+    id: true,
+    slug: true,
+    title: true,
+    shortDescription: true,
+  },
+});
+
+// ❌ Avoid - fetching all fields when not needed
+const services = await prisma.service.findMany();
+```
+
+### Use Transactions
+```typescript
+// For related operations
+await prisma.$transaction([
+  prisma.order.create({ data: orderData }),
+  prisma.orderItem.createMany({ data: orderItems }),
+  prisma.product.updateMany({
+    where: { id: { in: productIds } },
+    data: { stockQuantity: { decrement: 1 } },
+  }),
+]);
+
+// Interactive transaction
+await prisma.$transaction(async (tx) => {
+  const order = await tx.order.create({ data: orderData });
+  // Use order.id for subsequent operations
+  await tx.orderItem.createMany({ 
+    data: items.map(item => ({ ...item, orderId: order.id }))
+  });
+  return order;
+});
+```
+
+## Migrations
+
+### Commands
+```bash
+# Create migration
+npx prisma migrate dev --name add_product_variants
+
+# Apply migrations in production
+npx prisma migrate deploy
+
+# Reset database (dev only)
+npx prisma migrate reset
+
+# Generate client after schema changes
+npx prisma generate
+```
+
+### Migration Naming
+- Use snake_case: `add_product_variants`, `update_order_status_enum`
+- Be descriptive: `add_hubspot_sync_fields_to_submissions`
+
+## Enums
+
+### Define in Schema
+```prisma
+enum ContentStatus {
+  draft
+  published
+  archived
+}
+
+enum ServiceCategory {
+  brandskydd
+  utbildningar
+  hjartstartare
+  forsta_hjalpen
+}
+```
+
+### Use in TypeScript
+```typescript
+import { ContentStatus, ServiceCategory } from '@prisma/client';
+
+// Type safe
+const status: ContentStatus = 'published';
+
+// Use in queries
+await prisma.service.findMany({
+  where: { status: ContentStatus.published },
+});
+```
+
+## Error Handling
+
+### Known Errors
+```typescript
+import { Prisma } from '@prisma/client';
+
+try {
+  await prisma.user.create({ data });
+} catch (error) {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    // Unique constraint violation
+    if (error.code === 'P2002') {
+      throw new Error('Email already exists');
+    }
+    // Foreign key constraint
+    if (error.code === 'P2003') {
+      throw new Error('Related record not found');
+    }
+  }
+  throw error;
+}
+```
+
+## Soft Deletes
+```prisma
+model Example {
+  isActive  Boolean   @default(true)
+  // OR
+  deletedAt DateTime?
+}
+
+// Query active records
+await prisma.example.findMany({
+  where: { isActive: true },
+});
+```

@@ -1,0 +1,284 @@
+---
+description: API route conventions and patterns
+globs: src/app/api/**/*.ts
+alwaysApply: false
+---
+
+# API Route Rules
+
+## Route Handler Structure
+
+### Basic Pattern
+```typescript
+// app/api/example/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
+import { prisma } from '@/lib/prisma';
+import { auth } from '@/lib/auth';
+
+// Input validation schema
+const RequestSchema = z.object({
+  name: z.string().min(2),
+  email: z.string().email(),
+});
+
+export async function POST(request: NextRequest) {
+  try {
+    // 1. Authentication (if required)
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+    
+    // 2. Parse and validate input
+    const body = await request.json();
+    const data = RequestSchema.parse(body);
+    
+    // 3. Business logic
+    const result = await prisma.example.create({ data });
+    
+    // 4. Return success response
+    return NextResponse.json({ 
+      success: true, 
+      data: result 
+    });
+    
+  } catch (error) {
+    // 5. Error handling
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: 'Validation failed', details: error.errors },
+        { status: 400 }
+      );
+    }
+    
+    console.error('API Error:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+```
+
+## HTTP Methods
+
+### Export Named Functions
+```typescript
+// GET - Read
+export async function GET(request: NextRequest) {}
+
+// POST - Create
+export async function POST(request: NextRequest) {}
+
+// PUT - Full update
+export async function PUT(request: NextRequest) {}
+
+// PATCH - Partial update
+export async function PATCH(request: NextRequest) {}
+
+// DELETE - Remove
+export async function DELETE(request: NextRequest) {}
+```
+
+### Dynamic Route Parameters
+```typescript
+// app/api/services/[id]/route.ts
+interface RouteParams {
+  params: { id: string };
+}
+
+export async function GET(
+  request: NextRequest,
+  { params }: RouteParams
+) {
+  const service = await prisma.service.findUnique({
+    where: { id: params.id },
+  });
+  
+  if (!service) {
+    return NextResponse.json(
+      { error: 'Not found' },
+      { status: 404 }
+    );
+  }
+  
+  return NextResponse.json(service);
+}
+```
+
+## Input Validation
+
+### Use Zod Schemas
+```typescript
+// schemas/forms.ts
+import { z } from 'zod';
+
+export const ContactFormSchema = z.object({
+  name: z.string().min(2, 'Namnet måste vara minst 2 tecken'),
+  email: z.string().email('Ogiltig e-postadress'),
+  phone: z.string().optional(),
+  company: z.string().optional(),
+  message: z.string().min(10, 'Meddelandet måste vara minst 10 tecken'),
+  serviceCategory: z.enum([
+    'brandskydd', 
+    'utbildningar', 
+    'hjartstartare', 
+    'forsta_hjalpen'
+  ]).optional(),
+  marketingConsent: z.boolean().default(false),
+  turnstileToken: z.string(),
+});
+
+export type ContactFormData = z.infer<typeof ContactFormSchema>;
+```
+
+### Validate in Route
+```typescript
+import { ContactFormSchema } from '@/schemas/forms';
+
+export async function POST(request: NextRequest) {
+  const body = await request.json();
+  
+  const result = ContactFormSchema.safeParse(body);
+  if (!result.success) {
+    return NextResponse.json(
+      { 
+        error: 'Validation failed',
+        details: result.error.flatten().fieldErrors 
+      },
+      { status: 400 }
+    );
+  }
+  
+  const data = result.data;
+  // Process validated data
+}
+```
+
+## Response Patterns
+
+### Success Responses
+```typescript
+// Single item
+return NextResponse.json({ data: item });
+
+// List
+return NextResponse.json({ 
+  data: items,
+  total: count,
+  page: 1,
+  pageSize: 20 
+});
+
+// Created
+return NextResponse.json(
+  { success: true, id: newItem.id },
+  { status: 201 }
+);
+
+// No content
+return new NextResponse(null, { status: 204 });
+```
+
+### Error Responses
+```typescript
+// 400 Bad Request - validation errors
+return NextResponse.json(
+  { error: 'Validation failed', details: errors },
+  { status: 400 }
+);
+
+// 401 Unauthorized - not logged in
+return NextResponse.json(
+  { error: 'Unauthorized' },
+  { status: 401 }
+);
+
+// 403 Forbidden - logged in but not allowed
+return NextResponse.json(
+  { error: 'Forbidden' },
+  { status: 403 }
+);
+
+// 404 Not Found
+return NextResponse.json(
+  { error: 'Resource not found' },
+  { status: 404 }
+);
+
+// 500 Internal Server Error
+return NextResponse.json(
+  { error: 'Internal server error' },
+  { status: 500 }
+);
+```
+
+## Authentication
+
+### Protected Routes
+```typescript
+import { auth } from '@/lib/auth';
+
+export async function POST(request: NextRequest) {
+  const session = await auth();
+  
+  if (!session?.user?.id) {
+    return NextResponse.json(
+      { error: 'Unauthorized' },
+      { status: 401 }
+    );
+  }
+  
+  // User is authenticated
+  const userId = session.user.id;
+}
+```
+
+### Admin-Only Routes
+```typescript
+export async function POST(request: NextRequest) {
+  const session = await auth();
+  
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  
+  // Check admin role
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { role: true },
+  });
+  
+  if (user?.role !== 'admin') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+}
+```
+
+## Rate Limiting Headers
+```typescript
+// For future rate limiting
+const headers = new Headers();
+headers.set('X-RateLimit-Limit', '100');
+headers.set('X-RateLimit-Remaining', '99');
+
+return NextResponse.json(data, { headers });
+```
+
+## CORS (if needed)
+```typescript
+// For external API access
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    },
+  });
+}
+```

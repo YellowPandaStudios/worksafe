@@ -1,0 +1,359 @@
+---
+description: CMS block system patterns and conventions
+globs: src/components/blocks/**/*.tsx,src/types/blocks.ts,src/lib/blocks.ts
+alwaysApply: false
+---
+
+# CMS Block System Rules
+
+## Block Type Definitions
+
+### Base Block Interface
+```typescript
+// types/blocks.ts
+export interface BaseBlock {
+  id: string;
+  type: BlockType;
+  background?: 'white' | 'gray' | 'primary' | 'dark';
+  paddingTop?: 'none' | 'sm' | 'md' | 'lg';
+  paddingBottom?: 'none' | 'sm' | 'md' | 'lg';
+  maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | 'full';
+  anchor?: string;
+}
+```
+
+### Specific Block Types
+```typescript
+export interface HeroBlock extends BaseBlock {
+  type: 'hero';
+  title: string;
+  subtitle?: string;
+  image?: string;
+  imageAlt?: string;
+  ctaText?: string;
+  ctaLink?: string;
+  overlay?: boolean;
+}
+
+export interface RichTextBlock extends BaseBlock {
+  type: 'richText';
+  content: JSONContent; // TipTap JSON
+}
+
+// Union type for all blocks
+export type ContentBlock = 
+  | HeroBlock
+  | RichTextBlock
+  | FAQBlock
+  | CTABlock
+  // ... all block types
+```
+
+## Block Component Pattern
+
+### Component Structure
+```typescript
+// components/blocks/Hero.tsx
+import { cn } from '@/lib/utils';
+import { OptimizedImage } from '@/components/OptimizedImage';
+import { Button } from '@/components/ui/button';
+import type { HeroBlock } from '@/types/blocks';
+
+interface HeroProps {
+  block: HeroBlock;
+}
+
+export function Hero({ block }: HeroProps) {
+  const {
+    title,
+    subtitle,
+    image,
+    imageAlt,
+    ctaText,
+    ctaLink,
+    overlay = true,
+  } = block;
+
+  return (
+    <section className="relative min-h-[60vh] flex items-center">
+      {image && (
+        <div className="absolute inset-0">
+          <OptimizedImage
+            src={image}
+            alt={imageAlt || ''}
+            fill
+            className="object-cover"
+            priority
+          />
+          {overlay && (
+            <div className="absolute inset-0 bg-black/50" />
+          )}
+        </div>
+      )}
+      
+      <div className="container relative z-10">
+        <h1 className="text-4xl md:text-5xl lg:text-6xl font-heading font-bold text-white">
+          {title}
+        </h1>
+        {subtitle && (
+          <p className="mt-4 text-xl text-white/90 max-w-2xl">
+            {subtitle}
+          </p>
+        )}
+        {ctaText && ctaLink && (
+          <Button asChild className="mt-8" size="lg">
+            <a href={ctaLink}>{ctaText}</a>
+          </Button>
+        )}
+      </div>
+    </section>
+  );
+}
+```
+
+## Block Renderer
+
+### Main Renderer Component
+```typescript
+// components/blocks/BlockRenderer.tsx
+import { Hero } from './Hero';
+import { RichText } from './RichText';
+import { FAQ } from './FAQ';
+import { CTA } from './CTA';
+import { BlockWrapper } from './BlockWrapper';
+import type { ContentBlock } from '@/types/blocks';
+
+const BLOCK_COMPONENTS: Record<string, React.ComponentType<any>> = {
+  hero: Hero,
+  richText: RichText,
+  faq: FAQ,
+  cta: CTA,
+  // ... all block types
+};
+
+interface BlockRendererProps {
+  blocks: ContentBlock[];
+  campaignId?: string;
+  variantId?: string;
+}
+
+export function BlockRenderer({ 
+  blocks, 
+  campaignId, 
+  variantId 
+}: BlockRendererProps) {
+  return (
+    <>
+      {blocks.map((block) => {
+        const Component = BLOCK_COMPONENTS[block.type];
+        
+        if (!Component) {
+          console.warn(`Unknown block type: ${block.type}`);
+          return null;
+        }
+        
+        return (
+          <BlockWrapper key={block.id} block={block}>
+            <Component 
+              block={block} 
+              campaignId={campaignId}
+              variantId={variantId}
+            />
+          </BlockWrapper>
+        );
+      })}
+    </>
+  );
+}
+```
+
+### Block Wrapper
+```typescript
+// components/blocks/BlockWrapper.tsx
+import { cn } from '@/lib/utils';
+import type { BaseBlock } from '@/types/blocks';
+
+const BG_CLASSES = {
+  white: 'bg-white',
+  gray: 'bg-bg-secondary',
+  primary: 'bg-primary text-white',
+  dark: 'bg-neutral-900 text-white',
+};
+
+const PADDING_CLASSES = {
+  none: 'py-0',
+  sm: 'py-8',
+  md: 'py-12',
+  lg: 'py-16 md:py-24',
+};
+
+const MAX_WIDTH_CLASSES = {
+  sm: 'max-w-3xl',
+  md: 'max-w-4xl',
+  lg: 'max-w-5xl',
+  xl: 'max-w-6xl',
+  full: 'max-w-none',
+};
+
+interface BlockWrapperProps {
+  block: BaseBlock;
+  children: React.ReactNode;
+}
+
+export function BlockWrapper({ block, children }: BlockWrapperProps) {
+  const {
+    background = 'white',
+    paddingTop = 'md',
+    paddingBottom = 'md',
+    maxWidth = 'xl',
+    anchor,
+  } = block;
+
+  return (
+    <section
+      id={anchor}
+      className={cn(
+        BG_CLASSES[background],
+        PADDING_CLASSES[paddingTop],
+        PADDING_CLASSES[paddingBottom]
+      )}
+    >
+      <div className={cn('container mx-auto px-4', MAX_WIDTH_CLASSES[maxWidth])}>
+        {children}
+      </div>
+    </section>
+  );
+}
+```
+
+## Admin Block Editor
+
+### Block Definition Registry
+```typescript
+// lib/blocks.ts
+import { 
+  Layout, 
+  Type, 
+  HelpCircle, 
+  Megaphone 
+} from 'lucide-react';
+import type { BlockType } from '@/types/blocks';
+
+export interface BlockDefinition {
+  type: BlockType;
+  label: string;
+  icon: React.ComponentType;
+  category: 'content' | 'media' | 'cta' | 'social' | 'layout';
+  defaultData: Record<string, unknown>;
+}
+
+export const BLOCK_DEFINITIONS: BlockDefinition[] = [
+  {
+    type: 'hero',
+    label: 'Hero',
+    icon: Layout,
+    category: 'content',
+    defaultData: {
+      title: 'Ny rubrik',
+      overlay: true,
+    },
+  },
+  {
+    type: 'richText',
+    label: 'Brödtext',
+    icon: Type,
+    category: 'content',
+    defaultData: {
+      content: { type: 'doc', content: [] },
+    },
+  },
+  {
+    type: 'faq',
+    label: 'FAQ',
+    icon: HelpCircle,
+    category: 'content',
+    defaultData: {
+      title: 'Vanliga frågor',
+      items: [],
+    },
+  },
+  // ... more blocks
+];
+
+export function getBlockDefinition(type: BlockType): BlockDefinition | undefined {
+  return BLOCK_DEFINITIONS.find((def) => def.type === type);
+}
+
+export function createBlock(type: BlockType): ContentBlock {
+  const definition = getBlockDefinition(type);
+  if (!definition) {
+    throw new Error(`Unknown block type: ${type}`);
+  }
+  
+  return {
+    id: crypto.randomUUID(),
+    type,
+    ...definition.defaultData,
+  } as ContentBlock;
+}
+```
+
+## JSON-LD Schema Generation
+
+### FAQ Block Schema
+```typescript
+// lib/schema.ts
+export function generateFAQSchema(block: FAQBlock) {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: block.items.map((item) => ({
+      '@type': 'Question',
+      name: item.question,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: item.answer,
+      },
+    })),
+  };
+}
+```
+
+## Block Validation
+
+### Zod Schema for Blocks
+```typescript
+// schemas/blocks.ts
+import { z } from 'zod';
+
+const BaseBlockSchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  background: z.enum(['white', 'gray', 'primary', 'dark']).optional(),
+  paddingTop: z.enum(['none', 'sm', 'md', 'lg']).optional(),
+  paddingBottom: z.enum(['none', 'sm', 'md', 'lg']).optional(),
+});
+
+const HeroBlockSchema = BaseBlockSchema.extend({
+  type: z.literal('hero'),
+  title: z.string().min(1),
+  subtitle: z.string().optional(),
+  image: z.string().url().optional(),
+  ctaText: z.string().optional(),
+  ctaLink: z.string().optional(),
+});
+
+// Validate blocks array
+export function validateBlocks(blocks: unknown[]): ContentBlock[] {
+  return blocks.map((block) => {
+    // Type-specific validation
+    switch ((block as any).type) {
+      case 'hero':
+        return HeroBlockSchema.parse(block);
+      // ... other types
+      default:
+        return BaseBlockSchema.parse(block);
+    }
+  });
+}
+```

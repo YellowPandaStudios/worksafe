@@ -1,0 +1,203 @@
+---
+description: Tailwind CSS styling conventions and design system
+globs: **/*.tsx
+alwaysApply: false
+---
+
+# Tailwind CSS Rules
+
+## Design System
+
+### Color Palette
+Use CSS custom properties defined in `globals.css`:
+
+```css
+/* Service Categories */
+--fire-*        /* Brandskydd - red tones */
+--medical-*     /* Sjukvård - blue tones */
+--aed-*         /* Hjärtstartare - orange tones */
+--first-aid-*   /* Första hjälpen - green tones */
+
+/* Semantic */
+--text-primary, --text-secondary, --text-tertiary
+--bg-primary, --bg-secondary, --bg-tertiary
+--surface-primary, --surface-hover, --surface-active
+```
+
+### Typography
+- Headings: `font-heading` (Sora)
+- Body text: `font-body` (Inter)
+- Use utility classes for sizes: `text-sm`, `text-base`, `text-lg`, `text-xl`
+
+## Styling Approach
+
+### Use Tailwind Only
+```tsx
+// ✅ Good - Tailwind classes
+<div className="flex items-center gap-4 p-6 rounded-lg bg-white shadow">
+
+// ❌ Bad - inline styles
+<div style={{ display: 'flex', padding: '24px' }}>
+
+// ❌ Bad - CSS modules (avoid)
+<div className={styles.container}>
+```
+
+### Class Organization
+Order classes logically:
+1. Layout (flex, grid, position)
+2. Spacing (p, m, gap)
+3. Sizing (w, h, max-w)
+4. Typography (text, font)
+5. Colors (bg, text color, border color)
+6. Effects (shadow, opacity)
+7. States (hover, focus, active)
+8. Responsive (sm:, md:, lg:)
+
+```tsx
+<button className="
+  flex items-center justify-center
+  px-4 py-2 gap-2
+  w-full max-w-md
+  text-sm font-medium
+  bg-primary text-white border border-primary
+  shadow-sm
+  hover:bg-primary/90 focus:ring-2
+  sm:w-auto
+">
+```
+
+### Use cn() Utility
+```tsx
+import { cn } from '@/lib/utils';
+
+interface ButtonProps {
+  variant?: 'primary' | 'secondary';
+  className?: string;
+}
+
+export function Button({ variant = 'primary', className }: ButtonProps) {
+  return (
+    <button
+      className={cn(
+        'px-4 py-2 rounded-lg font-medium transition-colors',
+        variant === 'primary' && 'bg-primary text-white hover:bg-primary/90',
+        variant === 'secondary' && 'bg-secondary text-primary hover:bg-secondary/80',
+        className
+      )}
+    />
+  );
+}
+```
+
+## Responsive Design
+
+### Mobile First
+```tsx
+// ✅ Good - mobile first
+<div className="flex flex-col md:flex-row">
+<div className="p-4 md:p-6 lg:p-8">
+<div className="text-base md:text-lg lg:text-xl">
+
+// ❌ Bad - desktop first
+<div className="flex-row md:flex-col">
+```
+
+### Breakpoints
+- `sm:` - 640px (small tablets)
+- `md:` - 768px (tablets)
+- `lg:` - 1024px (laptops)
+- `xl:` - 1280px (desktops)
+- `2xl:` - 1536px (large desktops)
+
+### Container
+```tsx
+<div className="container mx-auto px-4 sm:px-6 lg:px-8">
+```
+
+## Component Patterns
+
+### Cards
+```tsx
+<div className="rounded-xl border border-border bg-white p-6 shadow-sm">
+  <h3 className="text-lg font-semibold text-text-primary">Title</h3>
+  <p className="mt-2 text-text-secondary">Description</p>
+</div>
+```
+
+### Buttons
+```tsx
+// Primary
+<button className="rounded-lg bg-btn-primary px-4 py-2 text-btn-primary-text hover:bg-btn-primary-hover">
+
+// Secondary
+<button className="rounded-lg border border-border bg-transparent px-4 py-2 text-text-primary hover:bg-surface-hover">
+
+// Disabled
+<button className="rounded-lg bg-btn-disabled px-4 py-2 text-btn-disabled-text cursor-not-allowed">
+```
+
+### Form Inputs
+```tsx
+<input className="
+  w-full rounded-lg border border-border bg-white
+  px-3 py-2 text-text-primary
+  placeholder:text-text-disabled
+  focus:border-border-focus focus:outline-none focus:ring-2 focus:ring-border-focus/20
+  disabled:bg-surface-disabled disabled:cursor-not-allowed
+"/>
+```
+
+## Service Category Theming
+
+### Apply Accent Colors
+```tsx
+// Use CSS custom property classes
+<div className="accent-fire">
+  <span className="bg-[var(--accent)] text-white">Brandskydd</span>
+</div>
+
+<div className="accent-medical">
+  <span className="bg-[var(--accent)] text-white">Sjukvård</span>
+</div>
+```
+
+## Accessibility
+
+### Focus States
+- Always include focus styles
+- Use `focus-visible` for keyboard-only focus
+- Ensure sufficient contrast
+
+```tsx
+<button className="
+  focus:outline-none 
+  focus-visible:ring-2 
+  focus-visible:ring-border-focus 
+  focus-visible:ring-offset-2
+">
+```
+
+### Motion
+- Respect reduced motion preferences
+- Use `motion-safe:` for animations
+
+```tsx
+<div className="transition-transform motion-safe:hover:scale-105">
+```
+
+## Dark Mode
+
+### Use CSS Variables
+Dark mode colors are handled via CSS custom properties:
+- Light mode: Default values
+- Dark mode: `[data-theme="dark"]` or `.dark` class
+
+No need for `dark:` prefix when using CSS variables:
+```tsx
+// ✅ Variables auto-switch
+<div className="bg-bg-primary text-text-primary">
+
+// Only use dark: for hardcoded colors
+<div className="bg-white dark:bg-gray-900">
+```

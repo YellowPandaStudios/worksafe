@@ -1,0 +1,1886 @@
+// =============================================================================
+// WORK SAFE CMS + E-COMMERCE - PRISMA SCHEMA
+// =============================================================================
+// Production-optimized schema with:
+// - Full CMS capabilities (services, products, posts, pages, campaigns)
+// - Complete e-commerce (cart, checkout, orders, discounts)
+// - AI content assistant integration
+// - Fortnox ERP sync
+// - HubSpot CRM integration
+// - Performance-optimized indexes on all foreign keys and common query patterns
+// =============================================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearch", "fullTextIndex", "relationJoins"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum ServiceCategory {
+  brandskydd
+  utbildningar
+  hjartstartare
+  forsta_hjalpen
+}
+
+enum ContentStatus {
+  draft
+  published
+  archived
+}
+
+enum CampaignGoal {
+  lead_gen
+  awareness
+  product_sale
+  event_signup
+}
+
+enum RedirectType {
+  permanent // 301
+  temporary // 302
+}
+
+enum ConsentType {
+  necessary
+  analytics
+  marketing
+}
+
+enum OrderStatus {
+  pending    // Just submitted
+  confirmed  // Deal created in HubSpot
+  processing // Being handled by sales/warehouse
+  shipped    // Sent to customer
+  delivered  // Confirmed delivered
+  completed  // Fully closed
+  cancelled  // Cancelled by customer or admin
+  refunded   // Money returned
+}
+
+enum DiscountType {
+  percentage   // 10% off
+  fixed_amount // 100 kr off
+  free_shipping // Remove shipping cost
+  buy_x_get_y  // Buy 3 get 1 free
+  bulk_pricing // Tiered pricing
+}
+
+enum DiscountScope {
+  order    // Applies to entire order
+  product  // Applies to specific products
+  category // Applies to product category
+  shipping // Applies to shipping only
+}
+
+enum CustomerType {
+  private  // B2C
+  business // B2B
+}
+
+enum UserRole {
+  super_admin // Full access
+  admin       // CMS management
+  editor      // Content editing
+  author      // Limited content creation
+  customer    // E-commerce only (default)
+}
+
+// =============================================================================
+// LOCALIZATION
+// =============================================================================
+
+model Language {
+  id        String  @id @default(cuid())
+  code      String  @unique // "sv", "en", "no", "da", "fi"
+  name      String // "Svenska", "English"
+  nativeName String // "Svenska", "English"
+  isDefault Boolean @default(false)
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  // Relations
+  services  Service[]
+  products  Product[]
+  posts     Post[]
+  pages     Page[]
+  campaigns Campaign[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+  @@index([isDefault])
+}
+
+// =============================================================================
+// AUTHENTICATION (Better Auth)
+// =============================================================================
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String
+  emailVerified Boolean  @default(false)
+  image         String?
+
+  // Role and permissions
+  role UserRole @default(customer)
+
+  // Two-Factor Authentication
+  twoFactorEnabled        Boolean   @default(false)
+  twoFactorGraceExpiresAt DateTime? @default(dbgenerated("NOW() + INTERVAL '30 days'")) // 30-day grace period deadline
+
+  // Customer info (for e-commerce)
+  customerType             CustomerType @default(private)
+  company                  String?
+  orgNumber                String?
+  vatNumber                String?
+  phone                    String?
+  defaultBillingAddressId  String?
+  defaultShippingAddressId String?
+
+  // E-commerce preferences
+  acceptsMarketing   Boolean   @default(false)
+  marketingConsentAt DateTime?
+
+  // Customer stats (denormalized for performance)
+  totalOrders  Int      @default(0)
+  totalSpent   Decimal  @default(0) @db.Decimal(12, 2)
+  lastOrderAt  DateTime?
+
+  // Fortnox integration
+  fortnoxCustomerId String?
+
+  // Relations
+  posts     Post[]
+  media     Media[]
+  sessions  Session[]
+  accounts  Account[]
+  cart      Cart?
+  orders    Order[]
+  wishlist  Wishlist?
+  addresses UserAddress[]
+  twoFactor TwoFactor?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Indexes for common queries
+  @@index([email])
+  @@index([role])
+  @@index([customerType])
+  @@index([fortnoxCustomerId])
+  @@index([role, customerType])
+  @@index([twoFactorEnabled])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Index on userId for efficient lookups
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  idToken               String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([identifier, value])
+  @@index([expiresAt])
+}
+
+model UserAddress {
+  id        String @id @default(cuid())
+  userId    String
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String @default("both") // billing, shipping, both
+  isDefault Boolean @default(false)
+
+  name       String
+  company    String?
+  street     String
+  street2    String?
+  city       String
+  postalCode String
+  country    String  @default("SE")
+  phone      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([userId, type])
+  @@index([userId, isDefault])
+}
+
+model TwoFactor {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Encrypted TOTP secret
+  secret String
+
+  // Encrypted backup codes (JSON array)
+  backupCodes String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+// =============================================================================
+// CONTENT MANAGEMENT - CATEGORIES (Hierarchical)
+// =============================================================================
+
+model Category {
+  id          String  @id @default(cuid())
+  slug        String  @unique
+  name        String
+  description String? @db.Text
+
+  // Hierarchy
+  parentId String?
+  parent   Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children Category[] @relation("CategoryHierarchy")
+
+  // Computed path (e.g., /brandskydd/tjanster)
+  path String @unique
+
+  // Type for different behaviors: main, section, sub_category
+  type String @default("category")
+
+  // Landing page content
+  blocks    Json    @default("[]")
+  heroImage String?
+
+  // SEO
+  metaTitle       String?
+  metaDescription String? @db.Text
+  ogImage         String?
+
+  // Relations
+  services Service[]
+  pages    Page[]
+
+  // Organization
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([parentId])
+  @@index([type])
+  @@index([isActive, sortOrder])
+  @@index([path])
+}
+
+// =============================================================================
+// CONTENT MANAGEMENT - SERVICES
+// =============================================================================
+
+model Service {
+  id    String @id @default(cuid())
+  slug  String @unique
+  title String
+
+  // Dynamic category (replaces old enum)
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  // Subcategory for URL structure (e.g., "tjanster", "service", "hlr")
+  subcategory String?
+
+  // Computed path based on category (e.g., /brandskydd/tjanster/brandslackare)
+  path String? @unique
+
+  // Legacy category for migration (will be removed)
+  legacyCategory ServiceCategory?
+
+  // Hero section (fixed structure)
+  heroTitle    String?
+  heroSubtitle String?
+  heroImage    String?
+  heroImageAlt String?
+
+  // Hero action buttons
+  heroButtonsEnabled       Boolean @default(false)
+  heroPrimaryButtonText    String?
+  heroPrimaryButtonLink    String?
+  heroSecondaryButtonText  String?
+  heroSecondaryButtonLink  String?
+
+  // Short description for cards/previews
+  shortDescription String @db.Text
+
+  // Sidebar info (left column in service detail view)
+  sidebarType  String @default("benefits") // benefits, includes, specs
+  sidebarItems Json   @default("[]") // [{icon?, title, description?}]
+
+  // Pricing and details info
+  price         String? // "Från 2 500 kr"
+  duration      String? // "2-3 timmar"
+  participants  String? // "6-12 deltagare"
+  certification String? // "Certifikat ingår"
+
+  // Main content area - simplified blocks only
+  contentBlocks Json @default("[]")
+
+  // Legacy features field (migrate to sidebarItems)
+  features Json @default("[]")
+
+  // CTA Section
+  ctaTitle      String?
+  ctaText       String?
+  ctaLink       String?
+  ctaButtonText String?
+  hubspotFormId String?
+
+  // FAQ specific to this service
+  faqItems Json @default("[]") // [{question, answer}]
+
+  // Related services
+  relatedServiceIds String[] @default([])
+
+  // Relations
+  testimonials ServiceTestimonial[]
+  posts        Post[]               @relation("RelatedService")
+
+  // SEO
+  metaTitle       String?
+  metaDescription String? @db.Text
+  ogImage         String?
+  canonicalUrl    String?
+
+  // Advanced SEO & Indexing
+  noIndex           Boolean @default(false)
+  noFollow          Boolean @default(false)
+  excludeFromSitemap Boolean @default(false)
+
+  // Featured/Pinned
+  isFeatured Boolean @default(false)
+
+  // Access Control
+  passwordProtected Boolean @default(false)
+  password          String? // Hashed password for protected pages
+
+  // Redirect handling
+  redirectOnDelete String? // URL to redirect to if this content is deleted
+
+  // Localization
+  locale             String? // Language code (sv, en, etc.)
+  language           Language? @relation(fields: [locale], references: [code])
+  translationGroupId String? // Groups translations of same content together
+
+  // Publishing
+  status       ContentStatus @default(draft)
+  publishedAt  DateTime?
+  scheduledFor DateTime?
+
+  // Organization
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Indexes for common query patterns
+  @@unique([categoryId, subcategory, slug])
+  @@index([categoryId])
+  @@index([categoryId, subcategory])
+  @@index([status])
+  @@index([status, publishedAt])
+  @@index([sortOrder])
+  @@index([categoryId, status])
+  @@index([path])
+  @@index([legacyCategory])
+  @@index([locale])
+  @@index([translationGroupId])
+  @@index([isFeatured])
+}
+
+// =============================================================================
+// CONTENT MANAGEMENT - PRODUCTS (Extended for E-commerce)
+// =============================================================================
+
+model Product {
+  id       String          @id @default(cuid())
+  slug     String          @unique
+  name     String
+  category ServiceCategory
+  sku      String?         @unique
+
+  // Media
+  image    String?
+  imageAlt String?
+  gallery  Json    @default("[]") // [{url, alt, width, height}]
+
+  // Pricing (can be overridden by Fortnox sync)
+  price        Decimal? @db.Decimal(12, 2)
+  comparePrice Decimal? @db.Decimal(12, 2) // "Was" price for sales
+  costPrice    Decimal? @db.Decimal(12, 2) // From Fortnox, for margin calc
+  vatRate      Decimal  @default(25) @db.Decimal(5, 2)
+  vatIncluded  Boolean  @default(true)
+
+  // B2B pricing
+  b2bPrice       Decimal? @db.Decimal(12, 2) // Business customer price
+  b2bMinQuantity Int?                        // Min qty for B2B price
+
+  // Stock management
+  trackStock         Boolean @default(true)
+  stockQuantity      Int     @default(0)
+  lowStockThreshold  Int     @default(5)
+  allowBackorder     Boolean @default(false)
+  backorderLeadDays  Int?                     // "Ships in X days"
+
+  // Purchase rules
+  minQuantity  Int @default(1)
+  maxQuantity  Int?             // Per order limit
+  quantityStep Int @default(1)  // Must buy in multiples
+
+  // Content
+  shortDescription String @db.Text
+  contentBlocks    Json   @default("[]")
+  specifications   Json   @default("[]") // [{label, value}]
+
+  // Variants
+  hasVariants Boolean          @default(false)
+  variants    ProductVariant[]
+
+  // Relations
+  relatedProducts    Product[]       @relation("RelatedProducts")
+  relatedTo          Product[]       @relation("RelatedProducts")
+  upsellProducts     Product[]       @relation("UpsellProducts")
+  upsellTo           Product[]       @relation("UpsellProducts")
+  bundles            BundleItem[]
+  cartItems          CartItem[]
+  wishlistItems      WishlistItem[]
+  stockNotifications StockNotification[]
+  bulkPricingTiers   BulkPricingTier[]
+  productCategories  ProductCategoryOnProduct[]
+
+  // Fortnox integration
+  fortnoxArticleId String?   @unique
+  fortnoxLastSync  DateTime?
+  fortnoxSyncError String?
+
+  // HubSpot integration
+  hubspotProductId String?
+
+  // SEO
+  metaTitle       String?
+  metaDescription String? @db.Text
+  ogImage         String?
+  canonicalUrl    String?
+
+  // Advanced SEO & Indexing
+  noIndex           Boolean @default(false)
+  noFollow          Boolean @default(false)
+  excludeFromSitemap Boolean @default(false)
+
+  // Access Control
+  passwordProtected Boolean @default(false)
+  password          String? // Hashed password for protected pages
+
+  // Redirect handling
+  redirectOnDelete String? // URL to redirect to if this content is deleted
+
+  // Localization
+  locale             String? // Language code (sv, en, etc.)
+  language           Language? @relation(fields: [locale], references: [code])
+  translationGroupId String? // Groups translations of same content together
+
+  // Publishing
+  status      ContentStatus @default(draft)
+  publishedAt DateTime?
+
+  // Organization
+  sortOrder       Int       @default(0)
+  featured        Boolean   @default(false)
+  newArrival      Boolean   @default(false)
+  newArrivalUntil DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Performance indexes
+  @@index([category])
+  @@index([status])
+  @@index([status, publishedAt])
+  @@index([featured])
+  @@index([featured, status])
+  @@index([newArrival, status])
+  @@index([fortnoxArticleId])
+  @@index([stockQuantity])
+  @@index([category, status, sortOrder])
+  @@index([price])
+  @@index([locale])
+  @@index([translationGroupId])
+}
+
+model ProductVariant {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  name String  // "Red / Large"
+  sku  String? @unique
+
+  // Variant-specific pricing (null = use parent price)
+  price        Decimal? @db.Decimal(12, 2)
+  comparePrice Decimal? @db.Decimal(12, 2)
+  costPrice    Decimal? @db.Decimal(12, 2)
+
+  // Variant-specific stock
+  stockQuantity Int @default(0)
+
+  // Attributes
+  attributes Json @default("[]") // [{name: "Color", value: "Red"}, {name: "Size", value: "Large"}]
+
+  // Media
+  image String?
+
+  // Fortnox
+  fortnoxArticleId String? @unique
+
+  // Status
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  cartItems CartItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([productId])
+  @@index([productId, isActive])
+  @@index([stockQuantity])
+  @@index([fortnoxArticleId])
+}
+
+model ProductCategory {
+  id          String  @id @default(cuid())
+  slug        String  @unique
+  name        String
+  description String? @db.Text
+  image       String?
+
+  // Hierarchy
+  parentId String?
+  parent   ProductCategory?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children ProductCategory[] @relation("CategoryHierarchy")
+
+  // Products
+  products ProductCategoryOnProduct[]
+
+  // SEO
+  metaTitle       String?
+  metaDescription String? @db.Text
+
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([parentId])
+  @@index([isActive])
+  @@index([isActive, sortOrder])
+}
+
+model ProductCategoryOnProduct {
+  productId  String
+  product    Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   ProductCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  isPrimary  Boolean         @default(false)
+
+  @@id([productId, categoryId])
+  @@index([productId])
+  @@index([categoryId])
+  @@index([categoryId, isPrimary])
+}
+
+model BulkPricingTier {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  minQuantity Int  // Buy 5+
+  maxQuantity Int? // Up to 10 (null = unlimited)
+
+  // Price can be fixed or percentage discount
+  priceType       String   @default("fixed") // fixed, percentage
+  price           Decimal? @db.Decimal(12, 2) // 85 kr each
+  discountPercent Decimal? @db.Decimal(5, 2) // Or 15% off
+
+  // Display
+  label String? // "5-pack pris"
+
+  sortOrder Int @default(0)
+
+  @@unique([productId, minQuantity])
+  @@index([productId])
+}
+
+// =============================================================================
+// CONTENT MANAGEMENT - BLOG
+// =============================================================================
+
+model Post {
+  id       String  @id @default(cuid())
+  slug     String  @unique
+  title    String
+  excerpt  String? @db.Text
+
+  // Media
+  featuredImage    String?
+  featuredImageAlt String?
+
+  // Content
+  contentBlocks Json    @default("[]")
+  readingTime   Int? // minutes, auto-calculated
+  showToc       Boolean @default(true) // Show table of contents sidebar
+
+  // Taxonomy
+  categoryId String?
+  category   PostCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  tags       PostTagOnPost[]
+
+  // CTA
+  ctaBlock         Json?    // {title, text, link, style}
+  relatedServiceId String?
+  relatedService   Service? @relation("RelatedService", fields: [relatedServiceId], references: [id], onDelete: SetNull)
+
+  // SEO
+  metaTitle       String?
+  metaDescription String? @db.Text
+  ogImage         String?
+  canonicalUrl    String?
+
+  // Advanced SEO & Indexing
+  noIndex           Boolean @default(false)
+  noFollow          Boolean @default(false)
+  excludeFromSitemap Boolean @default(false)
+
+  // Featured/Pinned
+  isFeatured Boolean @default(false)
+
+  // Access Control
+  passwordProtected Boolean @default(false)
+  password          String? // Hashed password for protected pages
+
+  // Redirect handling
+  redirectOnDelete String? // URL to redirect to if this content is deleted
+
+  // Localization
+  locale             String? // Language code (sv, en, etc.)
+  language           Language? @relation(fields: [locale], references: [code])
+  translationGroupId String? // Groups translations of same content together
+
+  // Publishing
+  status       ContentStatus @default(draft)
+  publishedAt  DateTime?
+  scheduledFor DateTime?
+
+  // Metadata
+  authorId String?
+  author   User?   @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Performance indexes
+  @@index([categoryId])
+  @@index([relatedServiceId])
+  @@index([authorId])
+  @@index([status])
+  @@index([status, publishedAt])
+  @@index([publishedAt])
+  @@index([locale])
+  @@index([translationGroupId])
+  @@index([isFeatured])
+}
+
+model PostCategory {
+  id          String  @id @default(cuid())
+  slug        String  @unique
+  name        String
+  description String? @db.Text
+  posts       Post[]
+  sortOrder   Int     @default(0)
+  createdAt   DateTime @default(now())
+
+  @@index([sortOrder])
+}
+
+model PostTag {
+  id        String          @id @default(cuid())
+  slug      String          @unique
+  name      String
+  posts     PostTagOnPost[]
+  createdAt DateTime        @default(now())
+}
+
+model PostTagOnPost {
+  postId String
+  post   Post    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  tagId  String
+  tag    PostTag @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([postId, tagId])
+  @@index([postId])
+  @@index([tagId])
+}
+
+// =============================================================================
+// CONTENT MANAGEMENT - PAGES
+// =============================================================================
+
+model Page {
+  id    String @id @default(cuid())
+  slug  String @unique
+  title String
+
+  // WordPress-style hierarchy
+  parentId  String?
+  parent    Page?   @relation("PageHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children  Page[]  @relation("PageHierarchy")
+  sortOrder Int     @default(0)
+  path      String? @unique // Computed full path: /om-oss/teamet
+
+  // Content
+  blocks Json @default("[]")
+
+  // Page type for special handling
+  pageType   String? // home, contact, about, category_landing, etc.
+  categoryId String? // For category landing pages - references Category
+  category   Category? @relation(fields: [categoryId], references: [id])
+
+  // SEO
+  metaTitle       String?
+  metaDescription String? @db.Text
+  ogImage         String?
+  canonicalUrl    String?
+
+  // Advanced SEO & Indexing
+  noIndex           Boolean @default(false)
+  noFollow          Boolean @default(false)
+  excludeFromSitemap Boolean @default(false)
+
+  // Featured/Pinned
+  isFeatured Boolean @default(false)
+
+  // Access Control
+  passwordProtected Boolean @default(false)
+  password          String? // Hashed password for protected pages
+
+  // Redirect handling
+  redirectOnDelete String? // URL to redirect to if this content is deleted
+
+  // Localization
+  locale             String? // Language code (sv, en, etc.)
+  language           Language? @relation(fields: [locale], references: [code])
+  translationGroupId String? // Groups translations of same content together
+
+  // Publishing
+  status      ContentStatus @default(draft)
+  publishedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([pageType])
+  @@index([status])
+  @@index([categoryId])
+  @@index([status, pageType])
+  @@index([parentId])
+  @@index([parentId, sortOrder])
+  @@index([path])
+  @@index([locale])
+  @@index([translationGroupId])
+  @@index([isFeatured])
+}
+
+// =============================================================================
+// CAMPAIGNS & A/B TESTING
+// =============================================================================
+
+model Campaign {
+  id   String       @id @default(cuid())
+  slug String       @unique
+  name String
+  goal CampaignGoal
+
+  // Content
+  blocks       Json   @default("[]")
+  formPosition String @default("hero") // hero, sticky, bottom, inline
+
+  // Layout options
+  hideNav     Boolean @default(false)
+  hideFooter  Boolean @default(false)
+  urgencyText String? // "Erbjudandet galler t.o.m. 31 jan"
+
+  // UTM tracking
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+
+  // Scheduling
+  startDate  DateTime?
+  endDate    DateTime?
+  redirectTo String?   // Where to send after campaign ends
+
+  // Traffic control
+  trafficPercent Int @default(100) // 0-100, for gradual rollout
+
+  // A/B testing
+  isTestActive Boolean           @default(false)
+  variants     CampaignVariant[]
+
+  // SEO
+  metaTitle       String?
+  metaDescription String? @db.Text
+  ogImage         String?
+
+  // Advanced SEO & Indexing
+  noIndex           Boolean @default(true) // Usually don't index campaigns
+  noFollow          Boolean @default(false)
+  excludeFromSitemap Boolean @default(true) // Usually exclude campaigns from sitemap
+
+  // Featured/Pinned
+  isFeatured Boolean @default(false)
+
+  // Access Control
+  passwordProtected Boolean @default(false)
+  password          String? // Hashed password for protected pages
+
+  // Redirect handling (note: redirectTo above is for after campaign ends, redirectOnDelete is for when deleted)
+  redirectOnDelete String? // URL to redirect to if this content is deleted
+
+  // Localization
+  locale             String? // Language code (sv, en, etc.)
+  language           Language? @relation(fields: [locale], references: [code])
+  translationGroupId String? // Groups translations of same content together
+
+  // Publishing
+  status ContentStatus @default(draft)
+
+  // Analytics
+  submissions FormSubmission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([startDate, endDate])
+  @@index([status, startDate, endDate])
+  @@index([locale])
+  @@index([translationGroupId])
+  @@index([isFeatured])
+}
+
+model CampaignVariant {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  name   String // "Variant A", "Kort rubrik", etc.
+  blocks Json   @default("[]")
+  weight Int    @default(50) // 0-100, for weighted distribution
+
+  // Stats (denormalized for performance)
+  visits      Int @default(0)
+  conversions Int @default(0)
+
+  submissions FormSubmission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([campaignId])
+}
+
+// =============================================================================
+// TESTIMONIALS
+// =============================================================================
+
+model Testimonial {
+  id      String  @id @default(cuid())
+  quote   String  @db.Text
+  name    String
+  role    String?
+  company String?
+  image   String?
+  imageAlt String?
+
+  // Categorization
+  serviceCategory ServiceCategory?
+
+  // Relations
+  services ServiceTestimonial[]
+
+  // Organization
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([serviceCategory])
+  @@index([isActive])
+  @@index([isActive, sortOrder])
+}
+
+model ServiceTestimonial {
+  serviceId     String
+  service       Service     @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  testimonialId String
+  testimonial   Testimonial @relation(fields: [testimonialId], references: [id], onDelete: Cascade)
+  sortOrder     Int         @default(0)
+
+  @@id([serviceId, testimonialId])
+  @@index([serviceId])
+  @@index([testimonialId])
+}
+
+// =============================================================================
+// MEDIA LIBRARY
+// =============================================================================
+
+model MediaCategory {
+  id          String  @id @default(cuid())
+  slug        String  @unique
+  name        String
+  description String? @db.Text
+  color       String? // Hex color for UI display
+
+  // Hierarchy
+  parentId String?
+  parent   MediaCategory?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children MediaCategory[] @relation("CategoryHierarchy")
+
+  // Relations
+  media Media[]
+
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([parentId])
+  @@index([isActive])
+  @@index([isActive, sortOrder])
+}
+
+model Media {
+  id String @id @default(cuid())
+
+  // File info
+  url          String
+  cdnUrl       String? // Cloudflare transformed URL
+  filename     String
+  originalName String?
+
+  // Responsive variants {thumb, small, medium, large}
+  variants Json? // {"thumb": "url", "small": "url", "medium": "url", "large": "url"}
+
+  // Metadata
+  alt      String?
+  caption  String?
+  mimeType String
+  size     Int     // bytes
+  width    Int?
+  height   Int?
+
+  // Organization
+  folder     String  @default("uploads")
+  tags       String[] @default([])
+  categoryId String?
+  category   MediaCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  // Usage tracking
+  usageCount Int @default(0)
+
+  // Metadata
+  uploadedById String?
+  uploadedBy   User?   @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([folder])
+  @@index([mimeType])
+  @@index([createdAt])
+  @@index([uploadedById])
+  @@index([folder, createdAt])
+  @@index([categoryId])
+  @@index([categoryId, createdAt])
+}
+
+// =============================================================================
+// REDIRECTS
+// =============================================================================
+
+model Redirect {
+  id   String       @id @default(cuid())
+  from String       @unique // /old-path
+  to   String                // /new-path or https://...
+  type RedirectType @default(permanent)
+
+  // Stats
+  hitCount  Int       @default(0)
+  lastHitAt DateTime?
+
+  // Metadata
+  note String? // Why this redirect exists
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([from])
+}
+
+// =============================================================================
+// FORM SUBMISSIONS
+// =============================================================================
+
+model FormSubmission {
+  id String @id @default(cuid())
+
+  // Contact info
+  name      String
+  email     String
+  phone     String?
+  company   String?
+  orgNumber String?
+  message   String? @db.Text
+
+  // Context
+  page            String? // URL where form was submitted
+  formType        String? // contact, quote, callback, newsletter
+  serviceCategory ServiceCategory?
+  serviceSlug     String?
+  productSlug     String?
+
+  // Campaign tracking
+  campaignId String?
+  campaign   Campaign?        @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  variantId  String?
+  variant    CampaignVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  // UTM tracking
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  utmTerm     String?
+  utmContent  String?
+
+  // Technical
+  ipHash    String? // Hashed for privacy, for abuse detection
+  userAgent String? @db.Text
+  referrer  String?
+
+  // Consent
+  marketingConsent Boolean @default(false)
+
+  // HubSpot sync
+  hubspotId        String?
+  hubspotSyncedAt  DateTime?
+  hubspotSyncError String?
+
+  // Spam detection
+  turnstileToken String?
+  spamScore      Float?  @default(0)
+  isSpam         Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([campaignId])
+  @@index([variantId])
+  @@index([createdAt])
+  @@index([isSpam])
+  @@index([formType, createdAt])
+}
+
+// =============================================================================
+// COOKIE CONSENT
+// =============================================================================
+
+model CookieConsent {
+  visitorId String @id // Anonymous ID from cookie
+
+  // Consent choices
+  necessary Boolean @default(true) // Always true, required
+  analytics Boolean @default(false)
+  marketing Boolean @default(false)
+
+  // Metadata
+  consentedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  ipHash      String?
+  userAgent   String?
+
+  @@index([consentedAt])
+}
+
+// =============================================================================
+// SITE SETTINGS
+// =============================================================================
+
+model SiteSettings {
+  id String @id @default("default")
+
+  // General
+  siteName    String  @default("Work Safe")
+  siteTagline String?
+  logo        String?
+  favicon     String?
+
+  // Contact
+  email     String?
+  phone     String?
+  address   String? @db.Text
+  orgNumber String?
+
+  // Social
+  linkedIn  String?
+  facebook  String?
+  instagram String?
+
+  // SEO defaults
+  defaultMetaTitle       String?
+  defaultMetaDescription String? @db.Text
+  defaultOgImage         String?
+
+  // Scripts
+  headScripts String? @db.Text // Custom scripts for <head>
+  bodyScripts String? @db.Text // Custom scripts for <body>
+
+  // Maintenance
+  maintenanceMode    Boolean @default(false)
+  maintenanceMessage String? @db.Text
+
+  updatedAt DateTime @updatedAt
+}
+
+// =============================================================================
+// E-COMMERCE - BUNDLES
+// =============================================================================
+
+model Bundle {
+  id          String  @id @default(cuid())
+  slug        String  @unique
+  name        String
+  description String? @db.Text
+  image       String?
+
+  // Bundle pricing
+  price        Decimal  @db.Decimal(12, 2) // Bundle price
+  comparePrice Decimal? @db.Decimal(12, 2) // Sum of individual prices
+
+  // Items
+  items BundleItem[]
+
+  // Rules
+  isActive          Boolean   @default(true)
+  availableFrom     DateTime?
+  availableUntil    DateTime?
+  requireAllInStock Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([availableFrom, availableUntil])
+}
+
+model BundleItem {
+  id        String  @id @default(cuid())
+  bundleId  String
+  bundle    Bundle  @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity  Int     @default(1)
+
+  @@unique([bundleId, productId])
+  @@index([bundleId])
+  @@index([productId])
+}
+
+// =============================================================================
+// E-COMMERCE - CART
+// =============================================================================
+
+model Cart {
+  id String @id @default(cuid())
+
+  // Owner (guest or user)
+  visitorId String  @unique // Cookie-based ID
+  userId    String? @unique
+  user      User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Items
+  items CartItem[]
+
+  // Applied discounts
+  appliedDiscounts CartDiscount[]
+  discountCode     String?        // User-entered code
+
+  // Totals (calculated, cached for performance)
+  subtotal      Decimal @default(0) @db.Decimal(12, 2)
+  discountTotal Decimal @default(0) @db.Decimal(12, 2)
+  shippingTotal Decimal @default(0) @db.Decimal(12, 2)
+  vatTotal      Decimal @default(0) @db.Decimal(12, 2)
+  total         Decimal @default(0) @db.Decimal(12, 2)
+
+  // Customer type affects pricing
+  customerType CustomerType @default(private)
+
+  // Recovery
+  recoveryToken String? @unique
+
+  // Lifecycle
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  expiresAt DateTime // Cleanup after 30 days
+
+  // Abandoned cart tracking
+  abandonedEmailSent   Boolean   @default(false)
+  abandonedEmailSentAt DateTime?
+
+  @@index([userId])
+  @@index([visitorId])
+  @@index([expiresAt])
+  @@index([abandonedEmailSent, updatedAt])
+  @@index([recoveryToken])
+}
+
+model CartItem {
+  id        String  @id @default(cuid())
+  cartId    String
+  cart      Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantId String?
+  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  quantity Int @default(1)
+
+  // Price snapshot at time of add
+  unitPrice     Decimal @db.Decimal(12, 2)
+  originalPrice Decimal @db.Decimal(12, 2) // Before any discounts
+
+  // Applied item-level discounts
+  discountAmount Decimal @default(0) @db.Decimal(12, 2)
+  discountReason String? // "Bulk discount: 10% off"
+
+  // Is this a free item from promotion?
+  isFreeItem     Boolean @default(false)
+  freeItemReason String? // "Free with Buy 2 Get 1"
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cartId, productId, variantId])
+  @@index([cartId])
+  @@index([productId])
+  @@index([variantId])
+}
+
+model CartDiscount {
+  id         String   @id @default(cuid())
+  cartId     String
+  cart       Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  discountId String
+  discount   Discount @relation(fields: [discountId], references: [id], onDelete: Cascade)
+
+  // Calculated values
+  discountAmount Decimal @db.Decimal(12, 2)
+  description    String  // "SOMMAR20: 20% rabatt"
+
+  @@unique([cartId, discountId])
+  @@index([cartId])
+  @@index([discountId])
+}
+
+// =============================================================================
+// E-COMMERCE - DISCOUNTS
+// =============================================================================
+
+model Discount {
+  id String @id @default(cuid())
+
+  // Identification
+  name        String  // Internal name
+  code        String? @unique // User-facing code (null = automatic)
+  description String? // Shown to customer
+
+  // Type and scope
+  type  DiscountType
+  scope DiscountScope
+
+  // Value
+  value       Decimal  @db.Decimal(12, 2) // Amount or percentage
+  maxDiscount Decimal? @db.Decimal(12, 2) // Cap for percentage discounts
+
+  // Buy X Get Y specific
+  buyQuantity        Int?
+  getQuantity        Int?
+  getDiscountPercent Decimal? @db.Decimal(5, 2) // 100 = free, 50 = half price
+
+  // Bulk pricing specific
+  bulkTiers Json? // [{minQty: 5, discount: 10}, {minQty: 10, discount: 20}]
+
+  // Conditions
+  minimumOrderAmount Decimal? @db.Decimal(12, 2)
+  minimumQuantity    Int?
+  maximumQuantity    Int? // Max items discount applies to
+
+  // Applicability
+  applicableProducts   DiscountProduct[]
+  applicableCategories DiscountCategory[]
+  excludedProducts     String[]          @default([]) // Product IDs to exclude
+
+  // Customer restrictions
+  customerTypes    CustomerType[] @default([]) // Empty = all
+  requiresAuth     Boolean        @default(false)
+  oncePerCustomer  Boolean        @default(false)
+  newCustomersOnly Boolean        @default(false)
+
+  // Usage limits
+  usageLimit        Int? // Total uses allowed
+  usageLimitPerUser Int? // Uses per customer
+  currentUsage      Int  @default(0)
+
+  // Validity
+  startsAt DateTime?
+  endsAt   DateTime?
+  isActive Boolean   @default(true)
+
+  // Stacking
+  stackable Boolean @default(false) // Can combine with other discounts
+  priority  Int     @default(0) // Higher = applied first
+
+  // Tracking
+  cartDiscounts  CartDiscount[]
+  orderDiscounts OrderDiscount[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([code])
+  @@index([isActive, startsAt, endsAt])
+  @@index([type])
+  @@index([isActive, type])
+}
+
+model DiscountProduct {
+  discountId String
+  discount   Discount @relation(fields: [discountId], references: [id], onDelete: Cascade)
+  productId  String
+
+  @@id([discountId, productId])
+  @@index([discountId])
+  @@index([productId])
+}
+
+model DiscountCategory {
+  discountId String
+  discount   Discount @relation(fields: [discountId], references: [id], onDelete: Cascade)
+  categoryId String // ServiceCategory or ProductCategory ID
+
+  @@id([discountId, categoryId])
+  @@index([discountId])
+  @@index([categoryId])
+}
+
+model DiscountUsage {
+  id         String   @id @default(cuid())
+  discountId String
+  orderId    String?
+  userId     String?
+  email      String // Track by email for guests
+  usedAt     DateTime @default(now())
+
+  @@index([discountId])
+  @@index([email])
+  @@index([userId])
+  @@index([discountId, email])
+}
+
+// =============================================================================
+// E-COMMERCE - ORDERS
+// =============================================================================
+
+model Order {
+  id           String      @id @default(cuid())
+  orderNumber  String      @unique // WS-2026-0001
+  userId       String?
+  user         User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  customerType CustomerType @default(private)
+
+  // Contact info
+  email String
+  name  String
+  phone String?
+
+  // Company info (B2B)
+  company   String?
+  orgNumber String?
+  vatNumber String? // EU VAT for international
+  reference String? // "Er referens"
+
+  // Addresses
+  billingAddress  Json   // {name, street, street2, city, postalCode, country}
+  shippingAddress Json?  // Null = same as billing
+  deliveryNotes   String?
+
+  // Items
+  items OrderItem[]
+
+  // Pricing
+  subtotal      Decimal @db.Decimal(12, 2)
+  discountTotal Decimal @default(0) @db.Decimal(12, 2)
+  shippingTotal Decimal @default(0) @db.Decimal(12, 2)
+  vatTotal      Decimal @db.Decimal(12, 2)
+  total         Decimal @db.Decimal(12, 2)
+  currency      String  @default("SEK")
+
+  // Applied discounts
+  discounts     OrderDiscount[]
+  discountCodes String[]        @default([]) // Codes used
+
+  // Status
+  status        OrderStatus          @default(pending)
+  statusHistory OrderStatusHistory[]
+
+  // Dates
+  confirmedAt DateTime?
+  shippedAt   DateTime?
+  deliveredAt DateTime?
+  cancelledAt DateTime?
+
+  // Shipping
+  shippingMethod String?
+  trackingNumber String?
+  trackingUrl    String?
+
+  // Internal notes
+  adminNotes    String? @db.Text
+  customerNotes String? @db.Text // Order comments from customer
+
+  // HubSpot integration
+  hubspotDealId    String?
+  hubspotDealUrl   String?
+  hubspotSyncedAt  DateTime?
+  hubspotSyncError String?
+
+  // Fortnox integration
+  fortnoxOrderId   String?
+  fortnoxInvoiceId String?
+  fortnoxSyncedAt  DateTime?
+  fortnoxSyncError String?
+
+  // UTM tracking
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  utmTerm     String?
+  utmContent  String?
+
+  // Technical
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Performance indexes
+  @@index([userId])
+  @@index([email])
+  @@index([status])
+  @@index([orderNumber])
+  @@index([createdAt])
+  @@index([hubspotDealId])
+  @@index([fortnoxOrderId])
+  @@index([status, createdAt])
+  @@index([userId, status])
+}
+
+model OrderItem {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  // Product snapshot (product may change/delete)
+  productId   String
+  variantId   String?
+  sku         String?
+  name        String
+  variantName String? // "Red / Large"
+  image       String?
+
+  // Pricing
+  quantity       Int
+  unitPrice      Decimal @db.Decimal(12, 2)
+  originalPrice  Decimal @db.Decimal(12, 2)
+  discountAmount Decimal @default(0) @db.Decimal(12, 2)
+  totalPrice     Decimal @db.Decimal(12, 2)
+  vatRate        Decimal @db.Decimal(5, 2)
+  vatAmount      Decimal @db.Decimal(12, 2)
+
+  // Cost for margin tracking
+  costPrice Decimal? @db.Decimal(12, 2)
+
+  // Free item tracking
+  isFreeItem     Boolean @default(false)
+  freeItemReason String?
+
+  // HubSpot
+  hubspotLineItemId String?
+
+  // Fortnox
+  fortnoxRowId String?
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model OrderDiscount {
+  id         String    @id @default(cuid())
+  orderId    String
+  order      Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  discountId String?
+  discount   Discount? @relation(fields: [discountId], references: [id], onDelete: SetNull)
+
+  // Snapshot
+  code           String?
+  name           String
+  description    String?
+  type           DiscountType
+  discountAmount Decimal      @db.Decimal(12, 2)
+
+  @@index([orderId])
+  @@index([discountId])
+}
+
+model OrderStatusHistory {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  fromStatus OrderStatus?
+  toStatus   OrderStatus
+  note       String?
+  changedBy  String? // User ID or "system"
+
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+  @@index([orderId, createdAt])
+}
+
+// =============================================================================
+// E-COMMERCE - WISHLIST
+// =============================================================================
+
+model Wishlist {
+  id     String         @id @default(cuid())
+  userId String         @unique
+  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items  WishlistItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model WishlistItem {
+  id         String   @id @default(cuid())
+  wishlistId String
+  wishlist   Wishlist @relation(fields: [wishlistId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  // Price when added (for price drop notifications)
+  priceWhenAdded Decimal? @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+
+  @@unique([wishlistId, productId])
+  @@index([wishlistId])
+  @@index([productId])
+}
+
+// =============================================================================
+// E-COMMERCE - STOCK NOTIFICATIONS
+// =============================================================================
+
+model StockNotification {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantId String?
+
+  email  String
+  userId String?
+
+  // Status
+  notified   Boolean   @default(false)
+  notifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@unique([productId, variantId, email])
+  @@index([productId, notified])
+  @@index([email])
+}
+
+// =============================================================================
+// E-COMMERCE - SHIPPING
+// =============================================================================
+
+model ShippingMethod {
+  id          String  @id @default(cuid())
+  name        String  // "Standardfrakt"
+  description String? // "Leverans inom 3-5 arbetsdagar"
+
+  // Pricing
+  price     Decimal  @db.Decimal(12, 2)
+  freeAbove Decimal? @db.Decimal(12, 2) // Free shipping threshold
+
+  // Conditions
+  minOrderAmount Decimal? @db.Decimal(12, 2)
+  maxOrderAmount Decimal? @db.Decimal(12, 2)
+  maxWeight      Decimal? @db.Decimal(10, 2) // kg
+
+  // Availability
+  countries     String[]       @default(["SE"])
+  customerTypes CustomerType[] @default([]) // Empty = all
+
+  // Estimated delivery
+  minDays Int?
+  maxDays Int?
+
+  // Carrier
+  carrier String? // "PostNord", "DHL", etc.
+
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([isActive, sortOrder])
+}
+
+// =============================================================================
+// FORTNOX INTEGRATION
+// =============================================================================
+
+model FortnoxSyncLog {
+  id String @id @default(cuid())
+
+  type      String // article_sync, stock_sync, order_sync, price_sync
+  direction String // inbound, outbound
+  status    String // success, error, partial
+
+  itemsProcessed Int @default(0)
+  itemsFailed    Int @default(0)
+
+  errorMessage String? @db.Text
+  errorDetails Json?
+
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  @@index([type, startedAt])
+  @@index([status])
+}
+
+model FortnoxArticleMapping {
+  id String @id @default(cuid())
+
+  fortnoxArticleNumber String  @unique
+  productId            String? // Null if not mapped yet
+  variantId            String?
+
+  // Cached Fortnox data
+  fortnoxData Json?
+
+  // Sync settings
+  syncPrice Boolean @default(true)
+  syncStock Boolean @default(true)
+  syncCost  Boolean @default(true)
+
+  lastSyncAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([productId])
+  @@index([variantId])
+}
+
+// =============================================================================
+// AI CONTENT ASSISTANT
+// =============================================================================
+
+model AIGeneration {
+  id String @id @default(cuid())
+
+  // Request
+  prompt       String  @db.Text
+  systemPrompt String? @db.Text
+  context      String? @db.Text
+  action       String  // generate, improve, expand, shorten, etc.
+
+  // Response
+  output String? @db.Text
+
+  // Metadata
+  contentType String? // service, product, post, page
+  contentId   String? // ID of the content being edited
+
+  // Usage tracking
+  inputTokens  Int?
+  outputTokens Int?
+  model        String @default("claude-sonnet-4-20250514")
+  durationMs   Int?
+
+  // User
+  userId String
+
+  // Status
+  status String  @default("completed") // pending, completed, error
+  error  String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([contentType])
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([status])
+}
+
+model AIPromptTemplate {
+  id String @id @default(cuid())
+
+  name        String
+  description String?
+
+  // Template
+  systemPrompt       String @db.Text
+  userPromptTemplate String @db.Text // Supports {{variables}}
+
+  // Categorization
+  category     String   // content, seo, product, social
+  contentTypes String[] @default([]) // Which content types this applies to
+
+  // Settings
+  model       String @default("claude-sonnet-4-20250514")
+  maxTokens   Int    @default(1024)
+  temperature Float  @default(0.7)
+
+  isActive Boolean @default(true)
+  isSystem Boolean @default(false) // Built-in vs custom
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category])
+  @@index([isActive])
+  @@index([isActive, category])
+}
+
+// =============================================================================
+// FORM TEMPLATES
+// =============================================================================
+
+model FormTemplate {
+  id          String  @id @default(cuid())
+  name        String // "Offertförfrågan Brandskydd"
+  slug        String  @unique // "offert-brandskydd"
+  description String? @db.Text // Admin description
+
+  // Form configuration (JSON)
+  preset           String @default("contact") // Base preset: contact, quote, callback, newsletter
+  fields           Json   @default("[]") // FormFieldConfig[]
+  categoryMode     String @default("system") // system, custom, hidden
+  categoryLabel    String?
+  customCategories Json   @default("[]") // CategoryOption[]
+  submitButtonText String?
+  successMessage   String? @db.Text
+
+  // Default content
+  defaultTitle    String?
+  defaultSubtitle String?
+
+  // Usage tracking
+  usageCount Int @default(0)
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([slug])
+  @@index([isActive, preset])
+}
+
+// =============================================================================
+// SYSTEM CONFIGURATION
+// =============================================================================
+
+model SystemConfig {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}

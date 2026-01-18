@@ -1,0 +1,153 @@
+---
+description: Next.js 14+ App Router conventions and best practices
+globs: src/app/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# Next.js App Router Rules
+
+## Server vs Client Components
+
+### Default to Server Components
+- All components are Server Components by default
+- Only add `'use client'` when absolutely necessary
+- Client components needed for: event handlers, useState, useEffect, browser APIs
+
+### Minimize Client Components
+- Keep `'use client'` components small and focused
+- Push client interactivity to leaf components
+- Never put `'use client'` at the top of a page component
+- Extract interactive parts into separate client components
+
+### When to Use Client Components
+```tsx
+// ✅ Good - small focused client component
+'use client';
+export function AddToCartButton({ productId }: { productId: string }) {
+  const [isLoading, setIsLoading] = useState(false);
+  // ...
+}
+
+// ❌ Bad - entire page as client component
+'use client';
+export default function ProductPage() {
+  // Don't do this
+}
+```
+
+## Data Fetching
+
+### Server Components
+- Fetch data directly in Server Components using async/await
+- Use Prisma queries directly in Server Components
+- Cache appropriately with Next.js caching
+
+### Revalidation Strategy
+```tsx
+// Static with revalidation
+export const revalidate = 3600; // 1 hour
+
+// Dynamic data
+export const dynamic = 'force-dynamic';
+```
+
+### Loading and Error States
+- Always create `loading.tsx` for async pages
+- Always create `error.tsx` for error boundaries
+- Use Suspense boundaries for granular loading states
+
+## Page Structure
+
+### File Naming
+- `page.tsx` - Page component (required)
+- `layout.tsx` - Shared layout
+- `loading.tsx` - Loading UI
+- `error.tsx` - Error boundary
+- `not-found.tsx` - 404 page
+
+### Route Groups
+- Use `(site)` for public pages
+- Use `admin` for admin pages (no parentheses - actual route)
+- Use `api` for API routes
+
+### Dynamic Routes
+```
+app/
+├── (site)/
+│   ├── tjanster/
+│   │   ├── page.tsx          # /tjanster
+│   │   └── [slug]/
+│   │       └── page.tsx      # /tjanster/[slug]
+```
+
+## Metadata
+
+### Generate Metadata
+```tsx
+import { Metadata } from 'next';
+import { generateMetadata as genMeta } from '@/lib/metadata';
+
+export async function generateMetadata({ params }): Promise<Metadata> {
+  const service = await getService(params.slug);
+  return genMeta({
+    title: service.title,
+    metaTitle: service.metaTitle,
+    metaDescription: service.metaDescription,
+  });
+}
+```
+
+### Static Params
+```tsx
+export async function generateStaticParams() {
+  const services = await prisma.service.findMany({
+    where: { status: 'published' },
+    select: { slug: true },
+  });
+  return services.map((s) => ({ slug: s.slug }));
+}
+```
+
+## API Routes
+
+### Route Handlers
+- Use `route.ts` for API endpoints
+- Export named functions: GET, POST, PUT, DELETE, PATCH
+- Always validate input with Zod
+- Return proper HTTP status codes
+
+```tsx
+// app/api/forms/submit/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    // Validate and process
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    return NextResponse.json(
+      { error: 'Bad request' },
+      { status: 400 }
+    );
+  }
+}
+```
+
+## Performance
+
+### Image Optimization
+- Always use `next/image` for images
+- Provide width and height
+- Use appropriate `sizes` attribute
+- Set `priority` for above-the-fold images
+
+### Dynamic Imports
+- Use `next/dynamic` for heavy components
+- Lazy load below-the-fold content
+- Use Suspense for code splitting
+
+### Link Prefetching
+- Use `next/link` for internal navigation
+- Prefetch is enabled by default
+- Disable prefetch for rarely-visited pages

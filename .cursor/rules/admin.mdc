@@ -1,0 +1,337 @@
+---
+description: Admin panel conventions and patterns
+globs: src/app/admin/**/*,src/components/admin/**/*
+alwaysApply: false
+---
+
+# Admin Panel Rules
+
+## Admin Page Structure
+
+### List Pages
+```typescript
+// app/admin/services/page.tsx
+import { prisma } from '@/lib/prisma';
+import { DataTable } from '@/components/admin/lists/DataTable';
+import { columns } from './columns';
+
+export default async function ServicesPage() {
+  const services = await prisma.service.findMany({
+    orderBy: { sortOrder: 'asc' },
+    select: {
+      id: true,
+      title: true,
+      slug: true,
+      category: true,
+      status: true,
+      updatedAt: true,
+    },
+  });
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-heading font-bold">Tjänster</h1>
+        <Button asChild>
+          <Link href="/admin/services/new">
+            <Plus className="h-4 w-4 mr-2" />
+            Ny tjänst
+          </Link>
+        </Button>
+      </div>
+      
+      <DataTable 
+        columns={columns} 
+        data={services}
+        searchKey="title"
+      />
+    </div>
+  );
+}
+```
+
+### Edit Pages
+```typescript
+// app/admin/services/[id]/page.tsx
+import { notFound } from 'next/navigation';
+import { prisma } from '@/lib/prisma';
+import { ServiceForm } from '@/components/admin/forms/ServiceForm';
+
+interface PageProps {
+  params: { id: string };
+}
+
+export default async function EditServicePage({ params }: PageProps) {
+  const service = await prisma.service.findUnique({
+    where: { id: params.id },
+    include: {
+      testimonials: {
+        include: { testimonial: true },
+      },
+    },
+  });
+
+  if (!service) {
+    notFound();
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-4">
+        <Button variant="ghost" size="icon" asChild>
+          <Link href="/admin/services">
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+        </Button>
+        <h1 className="text-2xl font-heading font-bold">
+          Redigera: {service.title}
+        </h1>
+      </div>
+      
+      <ServiceForm initialData={service} />
+    </div>
+  );
+}
+```
+
+## Admin Forms
+
+### Form Pattern
+```typescript
+// components/admin/forms/ServiceForm.tsx
+'use client';
+
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { toast } from 'sonner';
+
+import { serviceSchema, type ServiceFormData } from '@/schemas/service';
+import { useAutoSave } from '@/hooks/useAutoSave';
+import { useUnsavedChanges } from '@/hooks/useUnsavedChanges';
+
+interface ServiceFormProps {
+  initialData?: Service | null;
+}
+
+export function ServiceForm({ initialData }: ServiceFormProps) {
+  const router = useRouter();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  const form = useForm<ServiceFormData>({
+    resolver: zodResolver(serviceSchema),
+    defaultValues: initialData || {
+      title: '',
+      slug: '',
+      category: 'brandskydd',
+      status: 'draft',
+      contentBlocks: [],
+    },
+  });
+  
+  const isDirty = form.formState.isDirty;
+  useUnsavedChanges(isDirty);
+  
+  // Auto-save draft
+  useAutoSave({
+    data: form.watch(),
+    onSave: async (data) => {
+      if (initialData?.id) {
+        await fetch(`/api/admin/services/${initialData.id}/draft`, {
+          method: 'PATCH',
+          body: JSON.stringify(data),
+        });
+      }
+    },
+    enabled: isDirty && initialData?.status === 'draft',
+  });
+  
+  const onSubmit = async (data: ServiceFormData) => {
+    setIsSubmitting(true);
+    
+    try {
+      const url = initialData?.id 
+        ? `/api/admin/services/${initialData.id}`
+        : '/api/admin/services';
+        
+      const response = await fetch(url, {
+        method: initialData?.id ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to save');
+      }
+      
+      toast.success('Tjänsten har sparats');
+      router.push('/admin/services');
+      router.refresh();
+      
+    } catch (error) {
+      toast.error('Kunde inte spara tjänsten');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+  
+  return (
+    <form onSubmit={form.handleSubmit(onSubmit)}>
+      {/* Form fields */}
+    </form>
+  );
+}
+```
+
+## Admin Layout
+
+### Sidebar Navigation
+```typescript
+// components/admin/layout/AdminSidebar.tsx
+const NAV_ITEMS = [
+  { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
+  { label: 'Tjänster', href: '/admin/services', icon: Briefcase },
+  { label: 'Produkter', href: '/admin/products', icon: Package },
+  { label: 'Inlägg', href: '/admin/posts', icon: FileText },
+  { label: 'Sidor', href: '/admin/pages', icon: File },
+  { label: 'Kampanjer', href: '/admin/campaigns', icon: Megaphone },
+  { label: 'Omdömen', href: '/admin/testimonials', icon: Quote },
+  { label: 'Media', href: '/admin/media', icon: Image },
+  { label: 'Formulär', href: '/admin/submissions', icon: Inbox },
+  { label: 'Redirects', href: '/admin/redirects', icon: ArrowRightLeft },
+  { label: 'Inställningar', href: '/admin/settings', icon: Settings },
+];
+```
+
+## Data Table Columns
+
+### Column Definition Pattern
+```typescript
+// app/admin/services/columns.tsx
+'use client';
+
+import { ColumnDef } from '@tanstack/react-table';
+import { Badge } from '@/components/ui/badge';
+import { RowActions } from './row-actions';
+
+export const columns: ColumnDef<Service>[] = [
+  {
+    accessorKey: 'title',
+    header: 'Titel',
+    cell: ({ row }) => (
+      <Link 
+        href={`/admin/services/${row.original.id}`}
+        className="font-medium hover:underline"
+      >
+        {row.getValue('title')}
+      </Link>
+    ),
+  },
+  {
+    accessorKey: 'category',
+    header: 'Kategori',
+    cell: ({ row }) => (
+      <Badge variant="outline">
+        {CATEGORY_LABELS[row.getValue('category')]}
+      </Badge>
+    ),
+  },
+  {
+    accessorKey: 'status',
+    header: 'Status',
+    cell: ({ row }) => {
+      const status = row.getValue('status') as string;
+      return (
+        <Badge variant={status === 'published' ? 'default' : 'secondary'}>
+          {status === 'published' ? 'Publicerad' : 'Utkast'}
+        </Badge>
+      );
+    },
+  },
+  {
+    accessorKey: 'updatedAt',
+    header: 'Uppdaterad',
+    cell: ({ row }) => formatDate(row.getValue('updatedAt')),
+  },
+  {
+    id: 'actions',
+    cell: ({ row }) => <RowActions service={row.original} />,
+  },
+];
+```
+
+## Server Actions
+
+### Prefer Server Actions for Mutations
+```typescript
+// app/admin/services/actions.ts
+'use server';
+
+import { revalidatePath } from 'next/cache';
+import { prisma } from '@/lib/prisma';
+import { auth } from '@/lib/auth';
+
+export async function deleteService(id: string) {
+  const session = await auth();
+  if (!session?.user) {
+    throw new Error('Unauthorized');
+  }
+  
+  await prisma.service.delete({ where: { id } });
+  revalidatePath('/admin/services');
+  
+  return { success: true };
+}
+
+export async function duplicateService(id: string) {
+  const session = await auth();
+  if (!session?.user) {
+    throw new Error('Unauthorized');
+  }
+  
+  const original = await prisma.service.findUnique({ where: { id } });
+  if (!original) {
+    throw new Error('Service not found');
+  }
+  
+  const { id: _, slug, ...data } = original;
+  
+  const duplicate = await prisma.service.create({
+    data: {
+      ...data,
+      title: `${data.title} (kopia)`,
+      slug: `${slug}-kopia-${Date.now()}`,
+      status: 'draft',
+    },
+  });
+  
+  revalidatePath('/admin/services');
+  
+  return { success: true, id: duplicate.id };
+}
+```
+
+## Admin UI Swedish Labels
+
+### Common Labels
+```typescript
+export const LABELS = {
+  save: 'Spara',
+  cancel: 'Avbryt',
+  delete: 'Ta bort',
+  edit: 'Redigera',
+  create: 'Skapa',
+  duplicate: 'Duplicera',
+  preview: 'Förhandsgranska',
+  publish: 'Publicera',
+  unpublish: 'Avpublicera',
+  draft: 'Utkast',
+  published: 'Publicerad',
+  archived: 'Arkiverad',
+  search: 'Sök...',
+  noResults: 'Inga resultat',
+  loading: 'Laddar...',
+  confirmDelete: 'Är du säker på att du vill ta bort detta?',
+};
+```

@@ -1,0 +1,236 @@
+---
+description: React component patterns and conventions
+globs: src/components/**/*.tsx
+alwaysApply: false
+---
+
+# React Component Rules
+
+## Component Structure
+
+### File Organization
+```tsx
+// 1. Imports (external, then internal, then types)
+import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import type { ServiceCardProps } from './types';
+
+// 2. Types/Interfaces (if not in separate file)
+interface Props {
+  title: string;
+  isActive?: boolean;
+}
+
+// 3. Constants
+const MAX_ITEMS = 10;
+
+// 4. Main component (named export preferred)
+export function ServiceCard({ title, isActive = false }: Props) {
+  // hooks first
+  const [isOpen, setIsOpen] = useState(false);
+  
+  // derived state
+  const displayTitle = title.toUpperCase();
+  
+  // handlers
+  const handleClick = () => {
+    setIsOpen(true);
+  };
+  
+  // render
+  return (
+    <div>...</div>
+  );
+}
+
+// 5. Subcomponents (if small and tightly coupled)
+function CardHeader({ children }: { children: React.ReactNode }) {
+  return <header>{children}</header>;
+}
+```
+
+## Naming Conventions
+
+### Components
+- Use PascalCase for component names
+- Name file same as component: `ServiceCard.tsx`
+- Props interface: `ServiceCardProps` or inline `Props`
+
+### Event Handlers
+- Prefix with `handle`: `handleClick`, `handleSubmit`
+- Props callbacks prefix with `on`: `onClick`, `onSubmit`
+
+```tsx
+// Component definition
+function Button({ onClick }: { onClick: () => void }) {
+  const handleClick = () => {
+    // internal logic
+    onClick();
+  };
+  return <button onClick={handleClick}>Click</button>;
+}
+```
+
+## Props
+
+### Destructure Props
+```tsx
+// ✅ Good
+function Card({ title, description, isActive }: CardProps) {
+  return <div>{title}</div>;
+}
+
+// ❌ Bad
+function Card(props: CardProps) {
+  return <div>{props.title}</div>;
+}
+```
+
+### Default Props
+```tsx
+// ✅ Good - default in destructuring
+function Card({ title, variant = 'default' }: CardProps) {}
+
+// ❌ Bad - defaultProps (deprecated)
+Card.defaultProps = { variant: 'default' };
+```
+
+### Children Pattern
+```tsx
+interface CardProps {
+  children: React.ReactNode;
+  title: string;
+}
+
+export function Card({ children, title }: CardProps) {
+  return (
+    <div>
+      <h2>{title}</h2>
+      {children}
+    </div>
+  );
+}
+```
+
+## Hooks
+
+### Order of Hooks
+1. useState
+2. useReducer
+3. useRef
+4. useContext
+5. Custom hooks
+6. useEffect (last)
+
+### Custom Hooks
+- Prefix with `use`: `useCart`, `useMediaUpload`
+- Place in `hooks/` directory
+- Return object for multiple values
+
+```tsx
+// hooks/useCart.ts
+export function useCart() {
+  const [items, setItems] = useState<CartItem[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  
+  const addItem = async (productId: string) => {
+    // ...
+  };
+  
+  return { items, isLoading, addItem };
+}
+```
+
+## Conditional Rendering
+
+### Prefer Early Returns
+```tsx
+// ✅ Good
+function UserProfile({ user }: { user: User | null }) {
+  if (!user) {
+    return <div>No user</div>;
+  }
+  
+  return <div>{user.name}</div>;
+}
+
+// ❌ Avoid deep ternaries
+function UserProfile({ user }: { user: User | null }) {
+  return user ? <div>{user.name}</div> : <div>No user</div>;
+}
+```
+
+### Use && Carefully
+```tsx
+// ✅ Good - boolean condition
+{isLoggedIn && <UserMenu />}
+
+// ❌ Bad - could render 0
+{items.length && <ItemList items={items} />}
+
+// ✅ Good - explicit boolean
+{items.length > 0 && <ItemList items={items} />}
+```
+
+## Lists and Keys
+
+### Always Use Unique Keys
+```tsx
+// ✅ Good - unique ID
+{items.map((item) => (
+  <ListItem key={item.id} item={item} />
+))}
+
+// ❌ Bad - index as key (unless static list)
+{items.map((item, index) => (
+  <ListItem key={index} item={item} />
+))}
+```
+
+## Forms
+
+### Use react-hook-form
+```tsx
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { formSchema, type FormData } from './schema';
+
+export function ContactForm() {
+  const form = useForm<FormData>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      name: '',
+      email: '',
+    },
+  });
+  
+  const onSubmit = async (data: FormData) => {
+    // Submit logic
+  };
+  
+  return (
+    <form onSubmit={form.handleSubmit(onSubmit)}>
+      {/* Form fields */}
+    </form>
+  );
+}
+```
+
+## shadcn/ui Components
+
+### Import Pattern
+```tsx
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+```
+
+### Composition
+- Use shadcn components as building blocks
+- Extend with project-specific variants
+- Keep styling consistent with design system

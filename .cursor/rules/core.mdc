@@ -1,0 +1,123 @@
+---
+description: Core development rules for Work Safe CMS - applies to all development work
+globs:
+alwaysApply: true
+---
+
+# Work Safe CMS - Core Development Rules
+
+## Project Context
+
+This is a custom CMS and e-commerce platform for Work Safe i Sverige AB, a Swedish company selling fire safety equipment, AEDs, first aid products, and safety training. Built with Next.js 14+ App Router, TypeScript, Prisma, and Tailwind CSS.
+
+## Code Style
+
+### General Principles
+
+- Write concise, technical TypeScript code with accurate examples
+- Use functional and declarative programming patterns
+- Avoid classes except for database clients and external service connectors
+- Prefer iteration and modularization over code duplication
+- Follow DRY, KISS, and YAGNI principles
+- Make minimal, focused changes
+
+### Naming Conventions
+
+- Use lowercase with dashes for directories (e.g., `components/auth-wizard`)
+- Use PascalCase for component files (e.g., `ServiceCard.tsx`)
+- Use camelCase for utility files (e.g., `formatCurrency.ts`)
+- Use descriptive variable names with auxiliary verbs (e.g., `isLoading`, `hasError`, `canSubmit`)
+- Prefix boolean variables with `is`, `has`, `can`, `should`
+- Use SCREAMING_SNAKE_CASE for constants
+
+### TypeScript
+
+- Use TypeScript for ALL code - no JavaScript files
+- **Enable strict mode in tsconfig.json** - `"strict": true` is required
+- Prefer interfaces over types for object shapes
+- Avoid enums - use const objects or union types instead
+- Always declare explicit return types for functions
+- Use strict typing - no `any` types (use `unknown` if type is truly unknown)
+- Define props interfaces with naming pattern `<ComponentName>Props`
+- Enable all strict flags: `noImplicitAny`, `strictNullChecks`, `strictFunctionTypes`, `strictBindCallApply`, `strictPropertyInitialization`, `noImplicitThis`, `alwaysStrict`
+
+### Formatting
+
+- Use 2-space indentation
+- Use single quotes for strings
+- Use semicolons
+- Max line length: 100 characters
+- Always use trailing commas in multi-line structures
+
+## URL Routes and Slugs
+
+### Language Rules
+
+- **Admin routes**: Always in English (`/admin/services`, `/admin/products`, `/admin/orders`)
+- **Customer-facing routes**: Always in Swedish for SEO (`/tjanster`, `/butik`, `/kontakt`, `/blogg`)
+- **API routes**: Always in English (`/api/forms/submit`, `/api/auth`)
+
+### Swedish URL Examples
+
+| Content Type | URL Pattern             | Example                                     |
+| ------------ | ----------------------- | ------------------------------------------- |
+| Services     | `/tjanster/[slug]`      | `/tjanster/brandskydd-foretag`              |
+| Products     | `/butik/[slug]`         | `/butik/pulverslackare-6kg`                 |
+| Blog posts   | `/blogg/[slug]`         | `/blogg/sa-valjer-du-ratt-hjartstartare`    |
+| Categories   | `/varugrupp/[category]` | `/varugrupp/hjartstartare`                  |
+| Pages        | `/[slug]`               | `/om-oss`, `/kontakt`, `/integritetspolicy` |
+| Campaigns    | `/kampanj/[slug]`       | `/kampanj/brandveckan-2025`                 |
+
+### Slug Generation
+
+- Use Swedish characters in slugs: `å`, `ä`, `ö` become `a`, `a`, `o`
+- Use lowercase with hyphens: `Första Hjälpen` becomes `forsta-hjalpen`
+- Keep slugs short but descriptive for SEO
+- Never use underscores or spaces in URLs
+
+### Category Landing Pages (Swedish)
+
+```
+/brandskydd          - Fire safety
+/utbildningar        - Training courses
+/hjartstartare       - AEDs/Defibrillators
+/forsta-hjalpen      - First aid
+```
+
+## File Organization
+
+- Structure files: exported component, subcomponents, helpers, static content, types
+- Keep components focused - one main export per file
+- Co-locate related files (component + types + utils)
+- Place shared utilities in `lib/`
+- Place shared types in `types/`
+
+## Comments and Documentation
+
+- Comments in English only
+- Write self-documenting code - minimize comments
+- Use JSDoc for exported functions and components
+- Add TODO comments for incomplete implementations: `// TODO: description`
+- Never leave commented-out code
+
+## Error Handling
+
+- Always handle errors explicitly - never silently ignore
+- Use specific error types that clearly indicate what went wrong
+- Avoid catch-all exception handlers
+- Error messages should be clear and actionable
+- Log errors with appropriate context
+
+## Git Commits
+
+- Use Conventional Commits format: `feat:`, `fix:`, `docs:`, `chore:`, `refactor:`
+- Keep commit messages under 72 characters
+- Write in imperative mood: "Add feature" not "Added feature"
+
+## Language
+
+- All code, comments, and documentation in English
+- Variable names in English always
+- User-facing UI strings in Swedish
+- URL slugs and routes in Swedish (except `/admin` and `/api`)
+- SEO metadata (meta titles, descriptions) in Swedish
